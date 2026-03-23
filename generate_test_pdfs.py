@@ -14,7 +14,8 @@ from pdf_costructor import (
     generate_contratto_pdf,
     generate_garanzia_pdf,
     generate_carta_pdf,
-    generate_approvazione_pdf
+    generate_approvazione_pdf,
+    generate_verpflichtung_pdf,
 )
 
 def main():
@@ -39,6 +40,11 @@ def main():
         ('garanzia', generate_garanzia_pdf, {'name': '12'}),
         ('carta', generate_carta_pdf, test_data_12),
         ('approvazione', generate_approvazione_pdf, test_data_12),
+        ('verpflichtung', generate_verpflichtung_pdf, {
+            'name': '12',
+            'commission': 12.0,
+            'indemnity': 12.0,
+        }),
     ]
     
     generated_files = []

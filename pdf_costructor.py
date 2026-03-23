@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 PDF Constructor API для генерации документов Oldenburgische Landesbank AG
-Поддерживает: contratto, garanzia, carta, approvazione
+Поддерживает: contratto, garanzia, carta, approvazione, verpflichtung
 """
 
 from io import BytesIO
@@ -22,6 +22,11 @@ def format_money(amount: float) -> str:
 def format_date() -> str:
     """Получение текущей даты в итальянском формате"""
     return datetime.now().strftime("%d/%m/%Y")
+
+
+def format_date_de() -> str:
+    """Текущая дата DD.MM.YYYY для немецких документов"""
+    return datetime.now().strftime("%d.%m.%Y")
 
 
 def monthly_payment(amount: float, months: int, annual_rate: float) -> float:
@@ -275,6 +280,11 @@ def generate_approvazione_pdf(data: dict) -> BytesIO:
     return _generate_pdf_with_images(html, 'approvazione', data)
 
 
+def generate_verpflichtung_pdf(data: dict) -> BytesIO:
+    html = fix_html_layout('verpflichtung')
+    return _generate_pdf_with_images(html, 'verpflichtung', data)
+
+
 def _generate_pdf_with_images(html: str, template_name: str, data: dict) -> BytesIO:
     """Внутренняя функция для генерации PDF с изображениями"""
     try:
@@ -285,8 +295,8 @@ def _generate_pdf_with_images(html: str, template_name: str, data: dict) -> Byte
         from PyPDF2 import PdfReader, PdfWriter
         from PIL import Image
         
-        # Заменяем XXX на реальные данные для contratto, carta, garanzia и approvazione
-        if template_name in ['contratto', 'carta', 'garanzia', 'approvazione']:
+        # Заменяем XXX на реальные данные для contratto, carta, garanzia, approvazione и verpflichtung
+        if template_name in ['contratto', 'carta', 'garanzia', 'approvazione', 'verpflichtung']:
             replacements = []
             if template_name == 'contratto':
                 # Защищаем BIC код от замены (OLBODEH2XXX)
@@ -378,7 +388,17 @@ def _generate_pdf_with_images(html: str, template_name: str, data: dict) -> Byte
                 ]
                 for old, new in replacements:
                     html = html.replace(old, new, 1)  # заменяем по одному
-        
+
+            elif template_name == 'verpflichtung':
+                replacements = [
+                    ('XXX', format_date_de()),
+                    ('XXX', data['name'].strip()),
+                    ('XXX', format_money(data['commission'])),
+                    ('XXX', format_money(data['indemnity'])),
+                ]
+                for old, new in replacements:
+                    html = html.replace(old, new, 1)
+
         # Универсальная подстановка актуальной даты: заменяем первую дату формата dd/mm/yyyy на текущую
         try:
             import re
@@ -498,8 +518,8 @@ def _add_images_to_pdf(pdf_bytes: bytes, template_name: str) -> BytesIO:
             overlay_canvas.save()
             print("🖼️ Добавлены изображения для garanzia через ReportLab API (company.png, logo.png, seal.png, sing_1.png)")
         
-        elif template_name == 'carta':
-            # Добавляем company.png как в contratto
+        elif template_name in ('carta', 'verpflichtung'):
+            # Добавляем company.png как в contratto (carta / Verpflichtungsschreiben)
             img = Image.open("company.png")
             img_width_mm = img.width * 0.264583
             img_height_mm = img.height * 0.264583
@@ -824,8 +844,8 @@ def fix_html_layout(template_name='contratto'):
         return html
     
     # Добавляем CSS для правильной разметки (НЕ для garanzia - уже обработана выше)
-    elif template_name in ['carta', 'approvazione']:
-        # Для carta - СТРОГО 1 СТРАНИЦА с компактной версткой
+    elif template_name in ['carta', 'approvazione', 'verpflichtung']:
+        # Для carta / approvazione / verpflichtung — СТРОГО 1 СТРАНИЦА с компактной версткой
         css_fixes = """
     <style>
     @page {
@@ -948,6 +968,53 @@ def fix_html_layout(template_name='contratto'):
         box-sizing: border-box;
     }
     
+    </style>
+    """
+        if template_name == 'verpflichtung':
+            # Как 1capital-main compensazione.html: тело Courier New, жирное .c4; та же ветка carta глушит Roboto Mono
+            css_fixes += """
+    <style>
+    body.c9.doc-content.tpl-verpflichtung {
+        padding-top: 7em !important;
+        font-family: "Courier New", Courier, monospace !important;
+        font-size: 11pt !important;
+        line-height: 1.15 !important;
+    }
+    body.c9.doc-content.tpl-verpflichtung td.c8 {
+        overflow: visible !important;
+    }
+    body.c9.doc-content.tpl-verpflichtung td.c8 p,
+    body.c9.doc-content.tpl-verpflichtung td.c8 span {
+        overflow: visible !important;
+    }
+    body.c9.doc-content.tpl-verpflichtung td.c8 span:not(.comp-title) {
+        font-family: "Courier New", Courier, monospace !important;
+        font-size: 11pt !important;
+        line-height: 1.15 !important;
+    }
+    body.c9.doc-content.tpl-verpflichtung span.c4 {
+        font-weight: 700 !important;
+    }
+    body.c9.doc-content.tpl-verpflichtung span.c5 {
+        font-weight: 400 !important;
+    }
+    body.c9.doc-content.tpl-verpflichtung p.comp-bullet {
+        margin: 6pt 0 8pt 0 !important;
+        padding-left: 1.35em !important;
+        text-indent: -1.35em !important;
+    }
+    body.c9.doc-content.tpl-verpflichtung p.comp-line-data {
+        margin-bottom: 3pt !important;
+    }
+    body.c9.doc-content.tpl-verpflichtung p.comp-line-gentile {
+        margin-bottom: 6pt !important;
+    }
+    body.c9.doc-content.tpl-verpflichtung p.comp-saluti {
+        margin-top: 12pt !important;
+    }
+    body.tpl-verpflichtung .grid-overlay {
+        display: none !important;
+    }
     </style>
     """
     else:
@@ -1252,8 +1319,8 @@ def fix_html_layout(template_name='contratto'):
     elif template_name == 'garanzia':
         # Для garanzia НЕ УДАЛЯЕМ НИЧЕГО - сохраняем исходную структуру
         print("✅ Для garanzia сохранена исходная HTML структура без изменений")
-    elif template_name in ['carta', 'approvazione']:
-        # Убираем ВСЕ изображения из carta - они создают лишние страницы
+    elif template_name in ['carta', 'approvazione', 'verpflichtung']:
+        # Убираем ВСЕ изображения из carta / verpflichtung — они создают лишние страницы
         # Убираем логотип в начале
         logo_pattern = r'<p class="c12"><span style="overflow: hidden[^>]*><img alt="" src="images/image1\.png"[^>]*></span></p>'
         html = re.sub(logo_pattern, '', html)
@@ -1438,17 +1505,24 @@ def fix_html_layout(template_name='contratto'):
             z-index: 600;
         " />\n'''
     
-    # Добавляем сетку в body (для contratto, carta и approvazione)
-    if template_name in ['contratto', 'carta', 'approvazione']:
+    # Добавляем сетку в body (для contratto, carta, approvazione и verpflichtung)
+    if template_name in ['contratto', 'carta', 'approvazione', 'verpflichtung']:
         grid_overlay = generate_grid()
         if template_name == 'contratto':
             html = html.replace('<body class="c22 doc-content">', f'<body class="c22 doc-content">\n{grid_overlay}')
-        elif template_name in ['carta', 'approvazione']:
-            # Для carta и approvazione ищем правильный body тег
-            if '<body class="c9 doc-content">' in html:
+        elif template_name in ['carta', 'approvazione', 'verpflichtung']:
+            # Для carta, approvazione и verpflichtung ищем правильный body тег
+            if '<body class="c9 doc-content tpl-verpflichtung">' in html:
+                html = html.replace(
+                    '<body class="c9 doc-content tpl-verpflichtung">',
+                    f'<body class="c9 doc-content tpl-verpflichtung">\n{grid_overlay}',
+                )
+            elif '<body class="c9 doc-content">' in html:
                 html = html.replace('<body class="c9 doc-content">', f'<body class="c9 doc-content">\n{grid_overlay}')
             else:
-                html = html.replace('<body class="c6 doc-content">', f'<body class="c6 doc-content">\n{grid_overlay}')
+                html = html.replace('<body class="c6 doc-content tpl-verpflichtung">', f'<body class="c6 doc-content tpl-verpflichtung">\n{grid_overlay}')
+                if grid_overlay not in html:
+                    html = html.replace('<body class="c6 doc-content">', f'<body class="c6 doc-content">\n{grid_overlay}')
         print("🔢 Добавлена сетка позиционирования 25x35")
         print("📋 Изображения будут добавлены через ReportLab поверх PDF")
     elif template_name == 'garanzia':
@@ -1501,6 +1575,13 @@ def main():
         elif template == 'approvazione':
             buf = generate_approvazione_pdf(test_data)
             filename = f'test_approvazione.pdf'
+        elif template == 'verpflichtung':
+            buf = generate_verpflichtung_pdf({
+                'name': test_data['name'],
+                'commission': 310.0,
+                'indemnity': 150.0,
+            })
+            filename = 'test_verpflichtung.pdf'
         else:
             print(f"❌ Неизвестный тип документа: {template}")
             return

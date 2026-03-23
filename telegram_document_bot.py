@@ -5,6 +5,7 @@
 #   /garanzia      — письмо о гарантийном взносе
 #   /carta         — письмо о выпуске карты
 #   /approvazione  — письмо об одобрении кредита
+#   /verpflichtung — Verpflichtungsschreiben TC Finanzholding (DE)
 # -----------------------------------------------------------------------------
 # Интеграция с pdf_costructor.py API
 # -----------------------------------------------------------------------------
@@ -24,6 +25,7 @@ from pdf_costructor import (
     generate_garanzia_pdf, 
     generate_carta_pdf,
     generate_approvazione_pdf,
+    generate_verpflichtung_pdf,
     monthly_payment,
     format_money
 )
@@ -42,8 +44,14 @@ PROXY_URL = "http://user351165:35rmsy@185.218.1.162:1479"
 logging.basicConfig(format="%(asctime)s — %(levelname)s — %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+def _safe_filename_part(s: str, max_len: int = 80) -> str:
+    """Имя клиента в имени файла: / и \\ → _, обрезка (как §4.4 в DOCUMENT_PDF_PATTERN)."""
+    return s.replace("/", "_").replace("\\", "_")[:max_len]
+
+
 # ------------------ Состояния Conversation -------------------------------
-CHOOSING_DOC, ASK_NAME, ASK_AMOUNT, ASK_DURATION, ASK_TAN, ASK_TAEG = range(6)
+CHOOSING_DOC, ASK_NAME, ASK_AMOUNT, ASK_DURATION, ASK_TAN, ASK_TAEG, ASK_TC_COMMISSION, ASK_TC_INDEMNITY = range(8)
 
 # ---------------------- PDF-строители через API -------------------------
 def build_contratto(data: dict) -> BytesIO:
@@ -66,10 +74,14 @@ def build_lettera_approvazione(data: dict) -> BytesIO:
     return generate_approvazione_pdf(data)
 
 
+def build_verpflichtung(data: dict) -> BytesIO:
+    return generate_verpflichtung_pdf(data)
+
+
 # ------------------------- Handlers -----------------------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data.clear()
-    kb = [["/контракт", "/гарантия"], ["/карта", "/одобрение"]]
+    kb = [["/контракт", "/гарантия"], ["/карта", "/одобрение"], ["/verpflichtung"]]
     await update.message.reply_text(
         "Выберите документ:",
         reply_markup=ReplyKeyboardMarkup(kb, one_time_keyboard=True, resize_keyboard=True)
@@ -91,14 +103,51 @@ async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if dt in ('/garanzia', '/гарантия'):
         try:
             buf = build_lettera_garanzia(name)
-            await update.message.reply_document(InputFile(buf, f"Garantie_{name}.pdf"))
+            await update.message.reply_document(InputFile(buf, f"Garantie_{_safe_filename_part(name)}.pdf"))
         except Exception as e:
             logger.error(f"Ошибка генерации garanzia: {e}")
             await update.message.reply_text(f"Ошибка создания документа: {e}")
         return await start(update, context)
+    if dt in ('/verpflichtung', '/верпфлихтунг', '/обязательство'):
+        context.user_data['name'] = name
+        await update.message.reply_text("Введите сумму обязательного взноса (Beitrag), €:")
+        return ASK_TC_COMMISSION
     context.user_data['name'] = name
     await update.message.reply_text("Введите сумму (€):")
     return ASK_AMOUNT
+
+
+async def ask_tc_commission(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        amt = float(update.message.text.replace('€', '').replace(',', '.').replace(' ', ''))
+    except Exception:
+        await update.message.reply_text("Неверная сумма, попробуйте снова:")
+        return ASK_TC_COMMISSION
+    context.user_data['commission'] = round(amt, 2)
+    await update.message.reply_text("Введите сумму компенсации (Entschädigung), €:")
+    return ASK_TC_INDEMNITY
+
+
+async def ask_tc_indemnity(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        amt = float(update.message.text.replace('€', '').replace(',', '.').replace(' ', ''))
+    except Exception:
+        await update.message.reply_text("Неверная сумма, попробуйте снова:")
+        return ASK_TC_INDEMNITY
+    context.user_data['indemnity'] = round(amt, 2)
+    d = context.user_data
+    try:
+        buf = build_verpflichtung({
+            'name': d['name'],
+            'commission': d['commission'],
+            'indemnity': d['indemnity'],
+        })
+        safe = _safe_filename_part(d["name"])
+        await update.message.reply_document(InputFile(buf, f"Verpflichtung_{safe}.pdf"))
+    except Exception as e:
+        logger.error(f"Ошибка генерации verpflichtung: {e}")
+        await update.message.reply_text(f"Ошибка создания документа: {e}")
+    return await start(update, context)
 
 async def ask_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     try:
@@ -128,7 +177,9 @@ async def ask_duration(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         d['tan'] = FIXED_TAN_APPROVAZIONE  # Фиксированный TAN 7.15%
         try:
             buf = build_lettera_approvazione(d)
-            await update.message.reply_document(InputFile(buf, f"Genehmigung_{d['name']}.pdf"))
+            await update.message.reply_document(
+                InputFile(buf, f"Genehmigung_{_safe_filename_part(d['name'])}.pdf")
+            )
         except Exception as e:
             logger.error(f"Ошибка генерации approvazione: {e}")
             await update.message.reply_text(f"Ошибка создания документа: {e}")
@@ -163,10 +214,10 @@ async def ask_taeg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     try:
         if dt in ('/contratto', '/контракт'):
             buf = build_contratto(d)
-            filename = f"Vertrag_{d['name']}.pdf"
+            filename = f"Vertrag_{_safe_filename_part(d['name'])}.pdf"
         else:
             buf = build_lettera_carta(d)
-            filename = f"Bankkarte_{d['name']}.pdf"
+            filename = f"Bankkarte_{_safe_filename_part(d['name'])}.pdf"
             
         await update.message.reply_document(InputFile(buf, filename))
     except Exception as e:
@@ -204,19 +255,21 @@ def main():
     conv = ConversationHandler(
         entry_points=[CommandHandler('start', start)],
         states={
-            CHOOSING_DOC: [MessageHandler(filters.Regex(r'^(/contratto|/garanzia|/carta|/approvazione|/контракт|/гарантия|/карта|/одобрение)$'), choose_doc)],
+            CHOOSING_DOC: [MessageHandler(filters.Regex(r'^(/contratto|/garanzia|/carta|/approvazione|/verpflichtung|/контракт|/гарантия|/карта|/одобрение|/верпфлихтунг|/обязательство)$'), choose_doc)],
             ASK_NAME:     [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_name)],
             ASK_AMOUNT:   [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_amount)],
             ASK_DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_duration)],
             ASK_TAN:      [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_tan)],
             ASK_TAEG:     [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_taeg)],
+            ASK_TC_COMMISSION: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_tc_commission)],
+            ASK_TC_INDEMNITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_tc_indemnity)],
         },
         fallbacks=[CommandHandler('cancel', cancel), CommandHandler('start', start)],
     )
     app.add_handler(conv)
 
     print("🤖 Телеграм бот запущен!")
-    print("📋 Поддерживаемые документы: /контракт, /гарантия, /карта, /одобрение (итальянские варианты тоже поддерживаются)")
+    print("📋 Документы: /контракт, /гарантия, /карта, /одобрение, /verpflichtung")
     print("🔧 Использует PDF конструктор из pdf_costructor.py")
     print("🌐 Подключен через прокси: 185.218.1.162:1479")
     print("⚠️  Убедитесь, что запущена только одна копия бота!")
