@@ -5,7 +5,7 @@
 #   /garanzia      — письмо о гарантийном взносе
 #   /carta         — письмо о выпуске карты
 #   /approvazione  — письмо об одобрении кредита
-#   /verpflichtung — Verpflichtungsschreiben TC Finanzholding (DE)
+#   /verpflichtung — Verpflichtung (DE); файл в Telegram: Entschädigungsschreiben_<safe>.pdf
 # -----------------------------------------------------------------------------
 # Интеграция с pdf_costructor.py API
 # -----------------------------------------------------------------------------
@@ -143,7 +143,7 @@ async def ask_tc_indemnity(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             'indemnity': d['indemnity'],
         })
         safe = _safe_filename_part(d["name"])
-        await update.message.reply_document(InputFile(buf, f"Verpflichtung_{safe}.pdf"))
+        await update.message.reply_document(InputFile(buf, f"Entschädigungsschreiben_{safe}.pdf"))
     except Exception as e:
         logger.error(f"Ошибка генерации verpflichtung: {e}")
         await update.message.reply_text(f"Ошибка создания документа: {e}")
