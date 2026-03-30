@@ -362,14 +362,14 @@ def _generate_pdf_with_images(html: str, template_name: str, data: dict) -> Byte
             
             elif template_name == 'carta':
                 replacements = [
-                    ('XXX', data['name']),  # имя клиента - строка 64: Herrn/Frau XXX
-                    ('XXX', format_money(data['amount'])),  # сумма кредита - строка 74: XXX €
-                    ('XXX', f"{data['duration']} Monate"),  # срок - строка 76: XXX Monate
-                    ('XXX', f"{data['tan']:.2f}"),  # TAN - строка 78: XXX %
-                    ('XXX', format_money(data['payment'])),  # платеж - строка 88: XXX €
+                    ('{{CLIENT_NAME}}', data['name']),
+                    ('{{AMOUNT}}', format_money(data['amount'])),
+                    ('{{DURATION}}', str(data['duration'])),
+                    ('{{TAN}}', f"{data['tan']:.2f}"),
+                    ('{{PAYMENT}}', format_money(data['payment'])),
                 ]
                 for old, new in replacements:
-                    html = html.replace(old, new, 1)  # заменяем по одному
+                    html = html.replace(old, new)
             
             elif template_name == 'garanzia':
                 replacements = [
